@@ -1,0 +1,82 @@
+====================================================
+  SCRIPT DE MIGRACIÓN WOOCOMMERCE → TIENDANUBE
+====================================================
+
+📁 ESTRUCTURA DEL PROYECTO
+----------------------------
+
+woocommerce-tiendanube-migration/
+│
+├── 📄 index.js                  ← Script principal de migración
+├── 🔧 variants-handler.js       ← Manejador de productos variables
+├── 📤 export-data.js            ← Exportación de datos a JSON
+├── 🧪 test-connection.js        ← Test de conexiones
+│
+├── 📦 package.json              ← Dependencias y scripts npm
+├── 🔐 config.example.env        ← Plantilla de configuración
+├── 🚫 .gitignore                ← Archivos ignorados por git
+│
+├── 📖 README.md                 ← Documentación completa
+├── 🚀 QUICKSTART.md             ← Guía de inicio rápido
+├── ❓ FAQ.md                    ← Preguntas frecuentes
+└── 📋 ESTRUCTURA.txt            ← Este archivo
+
+📦 ARCHIVOS A CREAR POR TI
+---------------------------
+
+├── 🔐 .env                      ← Tu configuración (copiar desde config.example.env)
+└── 📁 exports/                  ← Generado por export-data.js
+    ├── categories.json          ← Backup de categorías
+    ├── products.json            ← Backup de productos
+    └── report.json              ← Reporte de análisis
+
+====================================================
+  COMANDOS DISPONIBLES
+====================================================
+
+npm install          → Instalar dependencias
+npm test             → Probar conexiones
+npm run export       → Exportar datos de WooCommerce
+npm run dry-run      → Migración en modo prueba
+npm start            → Ejecutar migración real
+npm run migrate      → Alias de npm start
+
+====================================================
+  FLUJO DE TRABAJO RECOMENDADO
+====================================================
+
+1. npm install
+2. Copiar config.example.env → .env
+3. Configurar credenciales en .env
+4. npm test
+5. npm run export
+6. npm run dry-run
+7. Revisar logs
+8. Editar .env → DRY_RUN=false
+9. npm start
+
+====================================================
+  CARACTERÍSTICAS PRINCIPALES
+====================================================
+
+✅ Migración completa de categorías
+✅ Migración de productos simples y variables
+✅ Manejo inteligente de variantes
+✅ Exportación de datos para backup
+✅ Modo dry-run para pruebas
+✅ Test de conexiones
+✅ Logging detallado
+✅ Manejo de errores robusto
+✅ Rate limiting automático
+✅ Documentación completa
+
+====================================================
+  SOPORTE
+====================================================
+
+📖 README.md      → Documentación completa
+🚀 QUICKSTART.md  → Inicio rápido
+❓ FAQ.md         → Preguntas frecuentes
+
+====================================================
+

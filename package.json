@@ -1,0 +1,25 @@
+{
+	"name": "woocommerce-tiendanube-migration",
+	"version": "1.0.0",
+	"description": "Script para migrar categorías, productos y variantes de WooCommerce a TiendaNube",
+	"main": "index.js",
+	"type": "module",
+	"scripts": {
+		"start": "node index.js",
+		"migrate": "node index.js",
+		"export": "node export-data.js",
+		"test": "node test-connection.js",
+		"dry-run": "node index.js"
+	},
+	"keywords": [
+		"woocommerce",
+		"tiendanube",
+		"migration"
+	],
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"dotenv": "^16.4.5",
+		"node-fetch": "^3.3.2"
+	}
+}
