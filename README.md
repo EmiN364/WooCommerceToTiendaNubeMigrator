@@ -9,6 +9,8 @@ Script para migrar categorías, productos y variantes desde WooCommerce a Tienda
 - ✅ Migración de variantes
 - ✅ Migración de imágenes
 - ✅ Migración de SKUs, precios y stock
+- ✅ Migración incremental de colecciones específicas
+- ✅ Sincronización de stock para productos ya migrados
 - ✅ Soporte para paginación automática
 - ✅ Modo "dry run" para probar sin crear datos
 - ✅ Manejo de errores y logging detallado
@@ -77,6 +79,12 @@ DRY_RUN=false
 
 # Número de productos a procesar antes de mostrar progreso
 BATCH_SIZE=10
+
+# Configuración para migrar colecciones nuevas
+TARGET_COLLECTION_SLUG=nueva-coleccion
+# o bien TARGET_COLLECTION_ID=123
+STOCK_CONCURRENCY=10
+DEFAULT_STOCK_FOR_UNMANAGED=0
 ```
 
 ## 🎯 Uso
@@ -133,6 +141,23 @@ O también puedes ejecutar:
 ```bash
 npm run migrate
 ```
+
+### 5. Migrar una nueva colección y sincronizar stock
+
+Cuando necesites agregar una colección puntual (por ejemplo, una campaña nueva) y asegurarte de que el resto de los productos actualicen su stock en TiendaNube:
+
+1. Define en `.env` la colección objetivo (`TARGET_COLLECTION_SLUG` o `TARGET_COLLECTION_ID`)
+2. Ejecuta:
+
+```bash
+npm run sync-collection
+```
+
+Este script:
+
+- Crea la categoría/colección en TiendaNube si no existe
+- Migra únicamente los productos de esa colección
+- Sincroniza el stock de **todos los demás productos** existentes en TiendaNube usando los datos actuales de WooCommerce
 
 ## 📊 Proceso de migración
 
@@ -252,6 +277,7 @@ Si necesitas agregar productos nuevos después de la migración inicial:
 | `npm run dry-run` | Ejecuta migración en modo prueba (no crea nada)    |
 | `npm start`       | Ejecuta la migración según configuración en `.env` |
 | `npm run migrate` | Alias de `npm start`                               |
+| `npm run sync-collection` | Migra una colección puntual y sincroniza stock |
 
 ## 📁 Estructura de archivos
 
