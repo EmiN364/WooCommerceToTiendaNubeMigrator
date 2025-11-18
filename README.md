@@ -83,6 +83,7 @@ BATCH_SIZE=10
 # Categoría fija en TiendaNube para productos nuevos
 TIENDANUBE_TARGET_CATEGORY_ID=789
 # o alternativamente, TIENDANUBE_TARGET_CATEGORY_HANDLE=nueva-coleccion-tn
+EXCLUDE_TERM_BIKINI=true
 STOCK_CONCURRENCY=10
 DEFAULT_STOCK_FOR_UNMANAGED=0
 ```

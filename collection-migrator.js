@@ -181,6 +181,10 @@ class TiendaNubeClient {
 		return this.request("POST", "/products", { data: productData });
 	}
 
+	async updateProduct(productId, productData) {
+		return this.request("PUT", `/products/${productId}`, { data: productData });
+	}
+
 	async getCategories() {
 		return this.request("GET", "/categories");
 	}
@@ -227,6 +231,10 @@ function transformCategory(wcCategory, parentId = null) {
 		handle: wcCategory.slug,
 		parent: parentId,
 	};
+}
+
+function normalizeName(value) {
+	return typeof value === "string" ? value.trim().toLowerCase() : null;
 }
 
 function transformProduct(wcProduct, categoryMap, forcedCategoryId = null) {
@@ -279,6 +287,50 @@ function transformProduct(wcProduct, categoryMap, forcedCategoryId = null) {
 					?.value || "",
 		},
 	};
+}
+
+function buildProductUpdatePayload(
+	wcProduct,
+	categoryIds,
+	forcedCategoryId = null
+) {
+	const categorySet = new Set(categoryIds);
+	if (forcedCategoryId) {
+		categorySet.add(forcedCategoryId);
+	}
+
+	const payload = {
+		name: {
+			es: wcProduct.name,
+		},
+		description: {
+			es: wcProduct.description || wcProduct.short_description || "",
+		},
+		published: wcProduct.status === "publish",
+		free_shipping: wcProduct.shipping_class === "free-shipping",
+		images:
+			wcProduct.images?.map((img) => ({
+				src: img.src,
+				alt: img.alt || "",
+			})) || [],
+		seo_title: {
+			es:
+				wcProduct.meta_data?.find((m) => m.key === "_yoast_wpseo_title")
+					?.value || wcProduct.name,
+		},
+		seo_description: {
+			es:
+				wcProduct.meta_data?.find((m) => m.key === "_yoast_wpseo_metadesc")
+					?.value || "",
+		},
+		tags: wcProduct.tags?.map((tag) => tag.name).join(", ") || "",
+	};
+
+	if (categorySet.size > 0) {
+		payload.categories = Array.from(categorySet);
+	}
+
+	return payload;
 }
 
 function sleep(ms) {
@@ -356,6 +408,13 @@ function registerTiendaNubeProduct(product, caches) {
 		caches.productByHandle.set(product.handle, product);
 	}
 
+	const productName =
+		product.name?.es || product.name?.pt || product.name?.en || product.name;
+	const normalizedName = normalizeName(productName);
+	if (normalizedName) {
+		caches.productByName.set(normalizedName, product);
+	}
+
 	if (Array.isArray(product.variants)) {
 		product.variants.forEach((variant) => {
 			if (variant.sku) {
@@ -383,6 +442,7 @@ async function syncNewProducts({
 	);
 
 	let created = 0;
+	let updated = 0;
 	let skipped = 0;
 	let errors = 0;
 	let variables = 0;
@@ -393,9 +453,19 @@ async function syncNewProducts({
 		config.options.concurrency,
 		async (wcProduct, index) => {
 			const position = index + 1;
-			if (tnCaches.productByHandle.has(wcProduct.slug)) {
-				return { type: "skipped-existing" };
+			const normalizedProductName = normalizeName(wcProduct.name);
+
+			if (normalizedProductName?.includes("bikini")) {
+				console.log(
+					`🚫 [${position}/${wcProducts.length}] ${wcProduct.name} omitido (contiene "bikini")`
+				);
+				return { type: "skipped" };
 			}
+
+			const existingProduct =
+				tnCaches.productByHandle.get(wcProduct.slug) ||
+				(normalizedProductName &&
+					tnCaches.productByName.get(normalizedProductName));
 
 			const hasCategories = (wcProduct.categories || []).length > 0;
 			if (!hasCategories && !forcedCategoryId) {
@@ -413,6 +483,36 @@ async function syncNewProducts({
 					tnClient,
 					tnCaches.categoryByHandle
 				);
+			}
+
+			const resolvedCategories = (wcProduct.categories || [])
+				.map((cat) => categoryMap[cat.id])
+				.filter(Boolean);
+
+			if (existingProduct) {
+				const updatePayload = buildProductUpdatePayload(
+					wcProduct,
+					resolvedCategories,
+					forcedCategoryId
+				);
+
+				if (config.options.dryRun) {
+					console.log(
+						`[${position}/${wcProducts.length}] [DRY RUN] Actualizaría producto existente: ${wcProduct.name}`
+					);
+					return { type: "updated" };
+				}
+
+				const updatedProduct = await tnClient.updateProduct(
+					existingProduct.id,
+					updatePayload
+				);
+				registerTiendaNubeProduct(updatedProduct || existingProduct, tnCaches);
+				console.log(
+					`↻ [${position}/${wcProducts.length}] ${wcProduct.name} actualizado`
+				);
+				await sleep(150);
+				return { type: "updated" };
 			}
 
 			if (wcProduct.type === "variable") {
@@ -475,6 +575,8 @@ async function syncNewProducts({
 		if (result.status === "fulfilled") {
 			if (result.value.type === "variable" || result.value.type === "simple") {
 				created++;
+			} else if (result.value.type === "updated") {
+				updated++;
 			} else {
 				skipped++;
 			}
@@ -484,7 +586,15 @@ async function syncNewProducts({
 		}
 	});
 
-	return { created, skipped, errors, variables, simples, total: wcProducts.length };
+	return {
+		created,
+		updated,
+		skipped,
+		errors,
+		variables,
+		simples,
+		total: wcProducts.length,
+	};
 }
 
 async function buildWooCommerceStockMap(wcClient, cachedProducts = null) {
@@ -655,6 +765,7 @@ async function main() {
 	const tnProducts = await tnClient.getAllProducts();
 	const tnCaches = {
 		productByHandle: new Map(),
+		productByName: new Map(),
 		variantBySku: new Map(),
 		categoryByHandle: tnCategoryByHandle,
 	};
@@ -684,7 +795,7 @@ async function main() {
 	console.log("✅ PROCESO COMPLETADO");
 	console.log("========================================");
 	console.log(
-		`📦 Nuevos productos → Total revisados: ${migrationStats.total}, Creados: ${migrationStats.created}, Saltados: ${migrationStats.skipped}, Errores: ${migrationStats.errors}`
+		`📦 Nuevos productos → Total: ${migrationStats.total}, Creados: ${migrationStats.created}, Actualizados: ${migrationStats.updated}, Saltados: ${migrationStats.skipped}, Errores: ${migrationStats.errors}`
 	);
 	console.log(
 		`   • Simples: ${migrationStats.simples} | Variables: ${migrationStats.variables}`
