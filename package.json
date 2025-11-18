@@ -10,7 +10,8 @@
 		"export": "node export-data.js",
 		"test": "node test-connection.js",
 		"dry-run": "node index.js",
-		"sync-collection": "node collection-migrator.js"
+		"sync-collection": "node collection-migrator.js",
+		"sync-new-products": "node collection-migrator.js"
 	},
 	"keywords": [
 		"woocommerce",

@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
 import fetch from "node-fetch";
 import {
-    createVariableProduct,
-    getProductVariations,
+	createVariableProduct,
+	getProductVariations,
 } from "./variants-handler.js";
 
 dotenv.config();
@@ -18,11 +18,11 @@ const config = {
 		accessToken: process.env.TIENDANUBE_ACCESS_TOKEN,
 		userAgent: process.env.TIENDANUBE_USER_AGENT || "Migration Script",
 	},
-	collection: {
-		slug: process.env.TARGET_COLLECTION_SLUG,
-		id: process.env.TARGET_COLLECTION_ID
-			? parseInt(process.env.TARGET_COLLECTION_ID, 10)
+	targetCategory: {
+		id: process.env.TIENDANUBE_TARGET_CATEGORY_ID
+			? parseInt(process.env.TIENDANUBE_TARGET_CATEGORY_ID, 10)
 			: null,
+		handle: process.env.TIENDANUBE_TARGET_CATEGORY_HANDLE || null,
 	},
 	options: {
 		dryRun: process.env.DRY_RUN === "true",
@@ -229,10 +229,14 @@ function transformCategory(wcCategory, parentId = null) {
 	};
 }
 
-function transformProduct(wcProduct, categoryMap) {
+function transformProduct(wcProduct, categoryMap, forcedCategoryId = null) {
 	const categories = wcProduct.categories
 		.map((cat) => categoryMap[cat.id])
 		.filter(Boolean);
+
+	if (forcedCategoryId && !categories.includes(forcedCategoryId)) {
+		categories.push(forcedCategoryId);
+	}
 
 	const variants = [
 		{
@@ -365,20 +369,18 @@ function registerTiendaNubeProduct(product, caches) {
 	}
 }
 
-async function migrateCollectionProducts({
+async function syncNewProducts({
 	wcClient,
 	tnClient,
-	targetCategory,
+	wcProducts,
 	wcCategoriesMap,
 	categoryMap,
 	tnCaches,
+	forcedCategoryId,
 }) {
 	console.log(
-		`\n🆕 Migrando colección: ${targetCategory.name} (ID ${targetCategory.id})`
+		`\n🆕 Buscando productos nuevos para TiendaNube (total WC: ${wcProducts.length})`
 	);
-
-	const wcProducts = await wcClient.getProductsByCategory(targetCategory.id);
-	console.log(`✓ ${wcProducts.length} productos a procesar en la colección\n`);
 
 	let created = 0;
 	let skipped = 0;
@@ -392,31 +394,25 @@ async function migrateCollectionProducts({
 		async (wcProduct, index) => {
 			const position = index + 1;
 			if (tnCaches.productByHandle.has(wcProduct.slug)) {
+				return { type: "skipped-existing" };
+			}
+
+			const hasCategories = (wcProduct.categories || []).length > 0;
+			if (!hasCategories && !forcedCategoryId) {
 				console.log(
-					`↷ [${position}/${wcProducts.length}] ${wcProduct.name} ya existe (handle)`
+					`⚠️  [${position}/${wcProducts.length}] ${wcProduct.name} sin categorías en WooCommerce y sin categoría fija configurada`
 				);
 				return { type: "skipped" };
 			}
 
-			const productCategories = [];
 			for (const cat of wcProduct.categories || []) {
-				const tnCategoryId = await ensureCategory(
+				await ensureCategory(
 					cat.id,
 					wcCategoriesMap,
 					categoryMap,
 					tnClient,
 					tnCaches.categoryByHandle
 				);
-				if (tnCategoryId) {
-					productCategories.push(tnCategoryId);
-				}
-			}
-
-			if (productCategories.length === 0) {
-				console.log(
-					`⚠️  [${position}/${wcProducts.length}] ${wcProduct.name} sin categorías mapeadas → se omitirá`
-				);
-				return { type: "skipped" };
 			}
 
 			if (wcProduct.type === "variable") {
@@ -440,7 +436,8 @@ async function migrateCollectionProducts({
 						categories: wcProduct.categories,
 					},
 					wcVariations,
-					categoryMap
+					categoryMap,
+					forcedCategoryId
 				);
 				registerTiendaNubeProduct(created, tnCaches);
 				console.log(
@@ -453,7 +450,8 @@ async function migrateCollectionProducts({
 			simples++;
 			const tnProductPayload = transformProduct(
 				{ ...wcProduct, categories: wcProduct.categories },
-				categoryMap
+				categoryMap,
+				forcedCategoryId
 			);
 
 			if (config.options.dryRun) {
@@ -477,7 +475,7 @@ async function migrateCollectionProducts({
 		if (result.status === "fulfilled") {
 			if (result.value.type === "variable" || result.value.type === "simple") {
 				created++;
-			} else if (result.value.type === "skipped") {
+			} else {
 				skipped++;
 			}
 		} else {
@@ -489,10 +487,10 @@ async function migrateCollectionProducts({
 	return { created, skipped, errors, variables, simples, total: wcProducts.length };
 }
 
-async function buildWooCommerceStockMap(wcClient) {
+async function buildWooCommerceStockMap(wcClient, cachedProducts = null) {
 	console.log("\n📊 Construyendo mapa de stock desde WooCommerce...");
 	const stockMap = new Map();
-	const wcProducts = await wcClient.getProducts();
+	const wcProducts = cachedProducts || (await wcClient.getProducts());
 
 	for (const wcProduct of wcProducts) {
 		if (wcProduct.type === "variable") {
@@ -595,7 +593,7 @@ async function updateStockForExistingProducts({
 
 async function main() {
 	console.log("\n========================================");
-	console.log("🆕 MIGRACIÓN DE NUEVA COLECCIÓN + STOCK");
+	console.log("🆕 NUEVOS PRODUCTOS + SINCRONIZACIÓN DE STOCK");
 	console.log("========================================\n");
 
 	if (!config.woocommerce.url || !config.woocommerce.consumerKey) {
@@ -606,9 +604,9 @@ async function main() {
 		throw new Error("Falta configuración de TiendaNube");
 	}
 
-	if (!config.collection.slug && !config.collection.id) {
+	if (!config.targetCategory.id && !config.targetCategory.handle) {
 		throw new Error(
-			"Debes definir TARGET_COLLECTION_SLUG o TARGET_COLLECTION_ID en tu .env"
+			"Debes definir TIENDANUBE_TARGET_CATEGORY_ID o TIENDANUBE_TARGET_CATEGORY_HANDLE en tu .env"
 		);
 	}
 
@@ -628,25 +626,31 @@ async function main() {
 		config.tiendanube.userAgent
 	);
 
-	const wcCategories = await wcClient.getCategories();
-	const wcCategoriesMap = new Map(wcCategories.map((cat) => [cat.id, cat]));
-
-	let targetCategory =
-		(config.collection.slug &&
-			wcCategories.find((cat) => cat.slug === config.collection.slug)) ||
-		(config.collection.id &&
-			wcCategories.find((cat) => cat.id === config.collection.id));
-
-	if (!targetCategory) {
-		throw new Error(
-			"No se encontró la categoría/colección objetivo en WooCommerce"
-		);
-	}
-
 	const tnCategories = await tnClient.getCategories();
 	const tnCategoryByHandle = new Map(
 		(tnCategories || []).map((cat) => [cat.handle, cat.id])
 	);
+
+	const forcedCategoryId =
+		config.targetCategory.id ||
+		(config.targetCategory.handle &&
+			tnCategoryByHandle.get(config.targetCategory.handle));
+
+	if (!forcedCategoryId) {
+		throw new Error(
+			"No se encontró la categoría de TiendaNube configurada. Verifica el ID/handle."
+		);
+	}
+	console.log(
+		`📂 Categoría fija en TiendaNube: ${forcedCategoryId}${
+			config.targetCategory.handle
+				? ` (handle: ${config.targetCategory.handle})`
+				: ""
+		}`
+	);
+
+	const wcCategories = await wcClient.getCategories();
+	const wcCategoriesMap = new Map(wcCategories.map((cat) => [cat.id, cat]));
 
 	const tnProducts = await tnClient.getAllProducts();
 	const tnCaches = {
@@ -657,24 +661,19 @@ async function main() {
 	tnProducts.forEach((product) => registerTiendaNubeProduct(product, tnCaches));
 
 	const categoryMap = {};
-	await ensureCategory(
-		targetCategory.id,
-		wcCategoriesMap,
-		categoryMap,
-		tnClient,
-		tnCategoryByHandle
-	);
+	const wcProducts = await wcClient.getProducts();
 
-	const migrationStats = await migrateCollectionProducts({
+	const migrationStats = await syncNewProducts({
 		wcClient,
 		tnClient,
-		targetCategory,
+		wcProducts,
 		wcCategoriesMap,
 		categoryMap,
 		tnCaches,
+		forcedCategoryId,
 	});
 
-	const wooStockMap = await buildWooCommerceStockMap(wcClient);
+	const wooStockMap = await buildWooCommerceStockMap(wcClient, wcProducts);
 	const stockStats = await updateStockForExistingProducts({
 		tnClient,
 		tnCaches,
@@ -685,7 +684,7 @@ async function main() {
 	console.log("✅ PROCESO COMPLETADO");
 	console.log("========================================");
 	console.log(
-		`📦 Productos colección → Total: ${migrationStats.total}, Creados: ${migrationStats.created}, Omitidos: ${migrationStats.skipped}, Errores: ${migrationStats.errors}`
+		`📦 Nuevos productos → Total revisados: ${migrationStats.total}, Creados: ${migrationStats.created}, Saltados: ${migrationStats.skipped}, Errores: ${migrationStats.errors}`
 	);
 	console.log(
 		`   • Simples: ${migrationStats.simples} | Variables: ${migrationStats.variables}`

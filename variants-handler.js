@@ -111,7 +111,8 @@ export async function createVariableProduct(
 	tnClient,
 	wcProduct,
 	wcVariations,
-	categoryMap
+	categoryMap,
+	forcedCategoryId = null
 ) {
 	// Preparar atributos
 	const attributes = extractProductAttributes(wcProduct, wcVariations);
@@ -123,6 +124,10 @@ export async function createVariableProduct(
 	const categories = wcProduct.categories
 		.map((cat) => categoryMap[cat.id])
 		.filter(Boolean);
+
+	if (forcedCategoryId && !categories.includes(forcedCategoryId)) {
+		categories.push(forcedCategoryId);
+	}
 
 	// Preparar imágenes del producto principal
 	const images =
